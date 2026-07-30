@@ -31,6 +31,7 @@ cargo run -p dscode-cli -- init
 cargo run -p dscode-cli -- login
 cargo run -p dscode-cli -- runtime status
 cargo run -p dscode-cli -- runtime probe
+cargo run -p dscode-cli -- runtime contract
 ```
 
 For development, an environment credential can launch Codex directly:
@@ -68,10 +69,14 @@ Inspect the installed Codex runtime without making a model request:
 ```bash
 cargo run -p dscode-cli -- runtime status
 cargo run -p dscode-cli -- runtime probe
+cargo run -p dscode-cli -- runtime contract
 ```
 
 `runtime probe` performs the production stdio `app-server` initialization
 handshake and verifies that the server uses DS Code's isolated `CODEX_HOME`.
+`runtime contract` starts the same configured DouStack provider and validates
+the stable, read-only provider-capability, model-list, and session-list RPCs. It
+does not start a model turn or consume model tokens.
 The currently tested Codex version is `0.146.0`; other versions are reported as
 untested until their protocol schema and behavior pass the compatibility suite.
 
@@ -102,4 +107,6 @@ operation.
 See [ADR 0001](docs/adr/0001-stock-codex-runtime.md) for the runtime architecture,
 [ADR 0002](docs/adr/0002-system-credential-store.md) for credential handling,
 and [ADR 0003](docs/adr/0003-runtime-compatibility.md) for app-server compatibility.
+The boundary between read-only and live provider checks is recorded in
+[ADR 0004](docs/adr/0004-read-only-provider-contract.md).
 The staged delivery plan is tracked in [the roadmap](docs/roadmap.md).

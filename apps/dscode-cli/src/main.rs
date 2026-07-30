@@ -1,6 +1,8 @@
 use std::env;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
+use std::time::Duration;
 
 use dscode_core::config::AppConfig;
 use dscode_core::data_layout::DataLayout;
@@ -8,7 +10,10 @@ use dscode_core::{
     CodexRuntime, DEFAULT_API_KEY_ENV, DEFAULT_CODEX_BINARY, LaunchRequest, ProviderSettings,
 };
 use dscode_credentials::{CredentialStore, SystemCredentialStore};
-use dscode_runtime::{TESTED_CODEX_VERSION, inspect_runtime, probe_app_server};
+use dscode_runtime::{
+    AppServerClient, DEFAULT_PROBE_TIMEOUT, TESTED_CODEX_VERSION, inspect_runtime,
+    probe_app_server, run_read_only_contract,
+};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -67,7 +72,10 @@ fn run() -> Result<u8, String> {
         Action::Init => initialize(&data_layout(&cli)?),
         Action::Login => login(&data_layout(&cli)?, &SystemCredentialStore),
         Action::Logout => logout(&SystemCredentialStore),
-        Action::Runtime => runtime_command(&codex_binary, &data_layout(&cli)?, &cli.forwarded_args),
+        Action::Runtime => {
+            let layout = data_layout(&cli)?;
+            runtime_command(&cli, &codex_binary, &layout, &SystemCredentialStore)
+        }
         Action::Help => {
             print_help();
             Ok(0)
@@ -289,15 +297,17 @@ fn logout(credential_store: &dyn CredentialStore) -> Result<u8, String> {
 }
 
 fn runtime_command(
+    cli: &Cli,
     codex_binary: &str,
     layout: &DataLayout,
-    arguments: &[String],
+    credential_store: &dyn CredentialStore,
 ) -> Result<u8, String> {
-    let probe = match arguments {
-        [] => false,
-        [command] if command == "status" => false,
-        [command] if command == "probe" => true,
-        _ => return Err("usage: dscode runtime [status|probe]".to_string()),
+    let mode = match cli.forwarded_args.as_slice() {
+        [] => RuntimeMode::Status,
+        [command] if command == "status" => RuntimeMode::Status,
+        [command] if command == "probe" => RuntimeMode::Probe,
+        [command] if command == "contract" => RuntimeMode::Contract,
+        _ => return Err("usage: dscode runtime [status|probe|contract]".to_string()),
     };
     let inspection = inspect_runtime(codex_binary).map_err(|error| error.to_string())?;
 
@@ -313,7 +323,7 @@ fn runtime_command(
         );
     }
 
-    if probe {
+    if mode == RuntimeMode::Probe {
         layout.ensure().map_err(|error| {
             format!("failed to initialize {}: {error}", layout.root().display())
         })?;
@@ -327,11 +337,98 @@ fn runtime_command(
         println!("[ok] Codex home: {}", info.codex_home.display());
     }
 
-    Ok(if probe && !inspection.compatibility.is_tested() {
-        1
-    } else {
-        0
-    })
+    if mode == RuntimeMode::Contract {
+        run_contract(cli, codex_binary, layout, credential_store)?;
+    }
+
+    Ok(
+        if mode != RuntimeMode::Status && !inspection.compatibility.is_tested() {
+            1
+        } else {
+            0
+        },
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeMode {
+    Status,
+    Probe,
+    Contract,
+}
+
+fn run_contract(
+    cli: &Cli,
+    codex_binary: &str,
+    layout: &DataLayout,
+    credential_store: &dyn CredentialStore,
+) -> Result<(), String> {
+    let credential = resolve_credential(non_empty_env(DEFAULT_API_KEY_ENV), credential_store)?
+        .ok_or_else(|| "no DouStack credential found; run `dscode login`".to_string())?;
+    layout
+        .ensure()
+        .map_err(|error| format!("failed to initialize {}: {error}", layout.root().display()))?;
+    let config = load_config(layout)?;
+    let settings = settings_from(cli, &config);
+    let plan = CodexRuntime::plan(
+        &settings,
+        LaunchRequest {
+            codex_binary: codex_binary.to_string(),
+            codex_home: layout.codex_home(),
+            forwarded_args: vec![
+                "app-server".to_string(),
+                "--listen".to_string(),
+                "stdio://".to_string(),
+            ],
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    let mut environment = plan.environment;
+    environment.push((
+        OsString::from(DEFAULT_API_KEY_ENV),
+        OsString::from(credential.value),
+    ));
+    let (mut client, info) = AppServerClient::start(
+        &plan.program,
+        &plan.args,
+        &environment,
+        VERSION,
+        DEFAULT_PROBE_TIMEOUT,
+    )
+    .map_err(|error| error.to_string())?;
+    if !same_path(&info.codex_home, &layout.codex_home()) {
+        return Err(format!(
+            "app-server used CODEX_HOME `{}` instead of `{}`",
+            info.codex_home.display(),
+            layout.codex_home().display()
+        ));
+    }
+
+    let report = run_read_only_contract(&mut client, "doustack", Duration::from_secs(10))
+        .map_err(|error| error.to_string())?;
+    println!("[ok] provider capabilities: available");
+    println!(
+        "[info] capabilities: namespace-tools={}, image-generation={}, web-search={}",
+        report.capabilities.namespace_tools,
+        report.capabilities.image_generation,
+        report.capabilities.web_search
+    );
+    println!("[ok] model/list: {} models", report.model_count);
+    if let Some(model) = report.default_model {
+        println!("[info] default model: {model}");
+    }
+    println!(
+        "[ok] thread/list: {} DouStack sessions returned",
+        report.thread_count
+    );
+    println!("[ok] contract: read-only stable RPCs passed");
+    Ok(())
+}
+
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+    let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
+    left == right
 }
 
 fn configure(cli: &Cli, layout: &DataLayout) -> Result<u8, String> {
@@ -546,7 +643,7 @@ fn print_help() {
            dscode init [OPTIONS]\n\
            dscode login [OPTIONS]\n\
            dscode logout [OPTIONS]\n\
-           dscode runtime [status|probe] [OPTIONS]\n\
+           dscode runtime [status|probe|contract] [OPTIONS]\n\
          \n\
          Options:\n\
            --base-url URL   DouStack Responses API root\n\
@@ -664,6 +761,21 @@ mod tests {
         assert_eq!(cli.action, Action::Runtime);
         assert_eq!(cli.forwarded_args, strings(&["probe"]));
         assert_eq!(cli.data_home.as_deref(), Some("/tmp/dscode-runtime"));
+    }
+
+    #[test]
+    fn runtime_accepts_contract_argument() {
+        let cli = parse_args(strings(&[
+            "runtime",
+            "contract",
+            "--home",
+            "/tmp/dscode-contract",
+        ]))
+        .expect("valid runtime command");
+
+        assert_eq!(cli.action, Action::Runtime);
+        assert_eq!(cli.forwarded_args, strings(&["contract"]));
+        assert_eq!(cli.data_home.as_deref(), Some("/tmp/dscode-contract"));
     }
 
     #[test]

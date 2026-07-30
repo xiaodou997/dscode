@@ -21,6 +21,11 @@ transport, sends `initialize`, validates its response and isolated `codexHome`,
 sends `initialized`, and shuts the child process down. It does not opt into the
 experimental API.
 
+`dscode runtime contract` uses the same initialization path but keeps the
+app-server process alive while it checks stable read-only RPCs. Live model-turn
+behavior remains a separate release check because it can contact the configured
+provider and consume quota.
+
 The ordinary CLI launcher may continue with an untested Codex version because
 its integration uses the smaller provider configuration surface. Runtime probes
 return a non-zero status for an untested version even when initialization works.

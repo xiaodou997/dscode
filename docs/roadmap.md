@@ -8,9 +8,9 @@ repository.
 
 - Milestone 1 implementation is complete; Keychain login and session resume
   still require interactive user acceptance testing.
-- Milestone 2 now detects Codex versions and performs a real app-server stdio
-  initialization probe. Managed installation and the provider contract suite
-  remain open.
+- Milestone 2 now detects Codex versions, maintains a long-lived app-server
+  stdio client, and checks the stable read-only provider contract. Managed
+  installation and live model-turn checks remain open.
 - Milestones 3 and 4 have not started.
 
 ## Milestone 1: local product foundation
@@ -36,6 +36,8 @@ Acceptance criteria:
 - [x] Detect and report the installed Codex version and app-server handshake.
 - [x] Define an exact tested Codex version and report untested versions clearly.
 - [x] Pin the stable app-server schema for the tested Codex version.
+- [x] Validate provider capabilities, model discovery, and session discovery
+  through stable read-only app-server RPCs.
 - Add managed installation and updates without modifying official Codex data.
 - Run provider contract checks for streaming, tools, cancellation, compaction,
   and session resume before publishing a release.

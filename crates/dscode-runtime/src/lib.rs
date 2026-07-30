@@ -1,14 +1,17 @@
+mod app_server;
+mod contract;
+
+pub use app_server::AppServerClient;
+pub use contract::{ProviderCapabilities, ReadOnlyContractReport, run_read_only_contract};
+
+use std::ffi::OsString;
 use std::fmt;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::process::{Command, ExitStatus};
+use std::time::Duration;
 
 use semver::Version;
-use serde::Deserialize;
-use serde_json::{Value, json};
 
 pub const TESTED_CODEX_VERSION: &str = "0.146.0";
 pub const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -68,6 +71,13 @@ pub enum RuntimeError {
         source: io::Error,
     },
     ProbeTimeout(Duration),
+    RequestTimeout {
+        method: String,
+        timeout: Duration,
+    },
+    Disconnected {
+        stderr: String,
+    },
     InvalidProtocol(String),
     Protocol {
         code: Option<i64>,
@@ -96,6 +106,16 @@ impl fmt::Display for RuntimeError {
             Self::Io { operation, source } => write!(f, "app-server {operation} failed: {source}"),
             Self::ProbeTimeout(timeout) => {
                 write!(f, "app-server initialization timed out after {timeout:?}")
+            }
+            Self::RequestTimeout { method, timeout } => {
+                write!(f, "app-server `{method}` timed out after {timeout:?}")
+            }
+            Self::Disconnected { stderr } => {
+                f.write_str("app-server disconnected")?;
+                if !stderr.is_empty() {
+                    write!(f, ": {stderr}")?;
+                }
+                Ok(())
             }
             Self::InvalidProtocol(message) => write!(f, "invalid app-server response: {message}"),
             Self::Protocol { code, message } => match code {
@@ -166,107 +186,17 @@ pub fn probe_app_server_with_timeout(
     client_version: &str,
     timeout: Duration,
 ) -> Result<AppServerInfo, RuntimeError> {
-    let child = Command::new(program)
-        .args(["app-server", "--listen", "stdio://"])
-        .env("CODEX_HOME", codex_home)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|source| RuntimeError::Launch {
-            program: program.to_string(),
-            source,
-        })?;
-    let mut child = ManagedChild(child);
-
-    let mut stdin =
-        child.0.stdin.take().ok_or_else(|| {
-            RuntimeError::InvalidProtocol("stdin pipe is unavailable".to_string())
-        })?;
-    let stdout =
-        child.0.stdout.take().ok_or_else(|| {
-            RuntimeError::InvalidProtocol("stdout pipe is unavailable".to_string())
-        })?;
-    let stderr =
-        child.0.stderr.take().ok_or_else(|| {
-            RuntimeError::InvalidProtocol("stderr pipe is unavailable".to_string())
-        })?;
-
-    let stderr_reader = thread::spawn(move || {
-        let mut output = String::new();
-        let _ = BufReader::new(stderr).read_to_string(&mut output);
-        output
-    });
-    let (response_sender, response_receiver) = mpsc::channel();
-    let stdout_reader = thread::spawn(move || {
-        let mut line = String::new();
-        let result = BufReader::new(stdout).read_line(&mut line).map(|_| line);
-        let _ = response_sender.send(result);
-    });
-
-    let initialize = json!({
-        "method": "initialize",
-        "id": 1,
-        "params": {
-            "clientInfo": {
-                "name": "dscode",
-                "title": "DS Code",
-                "version": client_version
-            }
-        }
-    });
-    write_json_line(&mut stdin, &initialize)?;
-
-    let response = match response_receiver.recv_timeout(timeout) {
-        Ok(Ok(response)) if !response.is_empty() => response,
-        Ok(Ok(_)) => {
-            stop_child(&mut child.0, stdin);
-            let _ = stdout_reader.join();
-            let stderr = stderr_reader.join().unwrap_or_default();
-            return Err(RuntimeError::InvalidProtocol(if stderr.trim().is_empty() {
-                "app-server closed stdout before initialize completed".to_string()
-            } else {
-                stderr.trim().to_string()
-            }));
-        }
-        Ok(Err(source)) => {
-            stop_child(&mut child.0, stdin);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(RuntimeError::Io {
-                operation: "stdout read",
-                source,
-            });
-        }
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            stop_child(&mut child.0, stdin);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(RuntimeError::ProbeTimeout(timeout));
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            stop_child(&mut child.0, stdin);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(RuntimeError::InvalidProtocol(
-                "app-server response reader stopped unexpectedly".to_string(),
-            ));
-        }
-    };
-
-    let parsed = parse_initialize_response(&response);
-    let initialized_write = if parsed.is_ok() {
-        let initialized = json!({ "method": "initialized" });
-        write_json_line(&mut stdin, &initialized)
-    } else {
-        Ok(())
-    };
-    drop(stdin);
-    finish_child(&mut child.0);
-    let _ = stdout_reader.join();
-    let _ = stderr_reader.join();
-    initialized_write?;
-    let info = parsed?;
+    let args = vec![
+        "app-server".to_string(),
+        "--listen".to_string(),
+        "stdio://".to_string(),
+    ];
+    let environment = vec![(
+        OsString::from("CODEX_HOME"),
+        codex_home.as_os_str().to_os_string(),
+    )];
+    let (client, info) =
+        AppServerClient::start(program, &args, &environment, client_version, timeout)?;
     if !same_path(&info.codex_home, codex_home) {
         return Err(RuntimeError::InvalidProtocol(format!(
             "app-server used CODEX_HOME `{}` instead of `{}`",
@@ -274,48 +204,8 @@ pub fn probe_app_server_with_timeout(
             codex_home.display()
         )));
     }
+    drop(client);
     Ok(info)
-}
-
-fn write_json_line(stdin: &mut impl Write, value: &Value) -> Result<(), RuntimeError> {
-    serde_json::to_writer(&mut *stdin, value).map_err(|source| {
-        RuntimeError::InvalidProtocol(format!("cannot encode initialize message: {source}"))
-    })?;
-    stdin
-        .write_all(b"\n")
-        .and_then(|()| stdin.flush())
-        .map_err(|source| RuntimeError::Io {
-            operation: "stdin write",
-            source,
-        })
-}
-
-fn stop_child(child: &mut Child, stdin: impl Write) {
-    drop(stdin);
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-fn finish_child(child: &mut Child) {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while Instant::now() < deadline {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => break,
-        }
-    }
-    let _ = child.kill();
-    let _ = child.wait();
-}
-
-struct ManagedChild(Child);
-
-impl Drop for ManagedChild {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
@@ -324,58 +214,10 @@ fn same_path(left: &Path, right: &Path) -> bool {
     left == right
 }
 
-#[derive(Deserialize)]
-struct InitializeEnvelope {
-    id: Value,
-    result: Option<InitializeResult>,
-    error: Option<ProtocolError>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct InitializeResult {
-    user_agent: String,
-    codex_home: PathBuf,
-    platform_family: String,
-    platform_os: String,
-}
-
-#[derive(Deserialize)]
-struct ProtocolError {
-    code: Option<i64>,
-    message: String,
-}
-
-fn parse_initialize_response(response: &str) -> Result<AppServerInfo, RuntimeError> {
-    let envelope: InitializeEnvelope = serde_json::from_str(response).map_err(|source| {
-        RuntimeError::InvalidProtocol(format!("initialize response is not JSON: {source}"))
-    })?;
-    if envelope.id != json!(1) {
-        return Err(RuntimeError::InvalidProtocol(format!(
-            "initialize response id was {}, expected 1",
-            envelope.id
-        )));
-    }
-    if let Some(error) = envelope.error {
-        return Err(RuntimeError::Protocol {
-            code: error.code,
-            message: error.message,
-        });
-    }
-    let result = envelope.result.ok_or_else(|| {
-        RuntimeError::InvalidProtocol("initialize response has no result".to_string())
-    })?;
-    Ok(AppServerInfo {
-        user_agent: result.user_agent,
-        codex_home: result.codex_home,
-        platform_family: result.platform_family,
-        platform_os: result.platform_os,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     #[test]
     fn parses_codex_cli_version_output() {
@@ -402,33 +244,6 @@ mod tests {
         let error = parse_codex_version("codex unknown").expect_err("invalid version");
 
         assert!(matches!(error, RuntimeError::InvalidVersion { .. }));
-    }
-
-    #[test]
-    fn parses_initialize_response() {
-        let response = r#"{"id":1,"result":{"userAgent":"dscode-test","codexHome":"/tmp/dscode/codex","platformFamily":"unix","platformOs":"macos"}}"#;
-
-        let info = parse_initialize_response(response).expect("valid response");
-
-        assert_eq!(info.user_agent, "dscode-test");
-        assert_eq!(info.codex_home, PathBuf::from("/tmp/dscode/codex"));
-        assert_eq!(info.platform_family, "unix");
-        assert_eq!(info.platform_os, "macos");
-    }
-
-    #[test]
-    fn surfaces_initialize_protocol_errors() {
-        let response = r#"{"id":1,"error":{"code":-32602,"message":"invalid params"}}"#;
-
-        let error = parse_initialize_response(response).expect_err("protocol error");
-
-        assert!(matches!(
-            error,
-            RuntimeError::Protocol {
-                code: Some(-32602),
-                ..
-            }
-        ));
     }
 
     #[test]
