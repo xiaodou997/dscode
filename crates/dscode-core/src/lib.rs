@@ -1,5 +1,6 @@
 pub mod config;
 pub mod data_layout;
+pub mod official_codex;
 
 use std::ffi::OsString;
 use std::fmt;

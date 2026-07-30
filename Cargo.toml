@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "apps/dscode-cli",
+  "apps/dscode-desktop/src-tauri",
   "crates/dscode-core",
   "crates/dscode-credentials",
   "crates/dscode-runtime",

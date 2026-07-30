@@ -1,0 +1,26 @@
+[package]
+name = "dscode-desktop"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "dscode_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "dscode-desktop"
+path = "src/main.rs"
+
+[dependencies]
+dscode-core = { path = "../../../crates/dscode-core" }
+dscode-credentials = { path = "../../../crates/dscode-credentials" }
+dscode-runtime = { path = "../../../crates/dscode-runtime" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.11.2", features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[lints]
+workspace = true

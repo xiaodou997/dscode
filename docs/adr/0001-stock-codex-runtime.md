@@ -1,6 +1,7 @@
 # ADR 0001: Use the stock Codex runtime
 
-Status: accepted for phase one
+Status: accepted for the CLI fallback; desktop data-layout decision superseded
+by ADR 0005
 
 ## Context
 
@@ -15,10 +16,13 @@ source fork would also make upstream upgrades expensive.
 ## Decision
 
 DS Code will treat the official Codex binary as a versioned external runtime.
-Phase one launches that binary with a user-defined `doustack` model provider and
-an environment-backed credential. The child process receives an isolated
-`CODEX_HOME` at `~/.dscode/codex`; it does not modify the user's official Codex
-files under `~/.codex`.
+The CLI fallback launches that binary with a user-defined `doustack` model
+provider and an environment-backed credential. The child process receives an
+isolated `CODEX_HOME` at `~/.dscode/codex`.
+
+The primary desktop product instead acts as a companion to the installed
+official application and preserves its sessions in `~/.codex`. That mode and
+its strictly limited config mutation policy are defined in ADR 0005.
 
 The desktop phase will use Codex app-server over its supported stdio transport.
 Its generated schema must be pinned to the bundled/tested Codex version. The

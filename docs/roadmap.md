@@ -11,7 +11,9 @@ repository.
 - Milestone 2 now detects Codex versions, maintains a long-lived app-server
   stdio client, and checks the stable read-only provider contract. Managed
   installation and live model-turn checks remain open.
-- Milestones 3 and 4 have not started.
+- Milestone 3 has a working Tauri dashboard and official Codex configuration
+  manager. Interactive configuration switching and packaged builds remain open.
+- Milestones 4 and 5 have not started.
 
 ## Milestone 1: local product foundation
 
@@ -42,17 +44,27 @@ Acceptance criteria:
 - Run provider contract checks for streaming, tools, cancellation, compaction,
   and session resume before publishing a release.
 
-## Milestone 3: desktop MVP
+## Milestone 3: official desktop companion
 
-- Create a Tauri 2 desktop application backed by `codex app-server` over stdio.
-- Reuse the core configuration, data-layout, and credential modules.
-- Implement project selection, chat streaming, session history, approvals,
-  command output, and file diffs.
-- Pin generated app-server schemas to the bundled and tested Codex version.
+- [x] Create a Tauri 2 desktop application and operational status dashboard.
+- [x] Detect the official app, login presence, app version, and running state.
+- [x] Preview and merge the fixed DouStack provider into official Codex TOML.
+- [x] Back up and restore `~/.codex/config.toml` without modifying other data.
+- [x] Store the DouStack key outside TOML and inject it when launching Codex.
+- Run interactive acceptance tests against official and DouStack accounts.
+- Package and sign the macOS application.
 
-## Milestone 4: distribution and migration
+## Milestone 4: DouStack product surfaces
+
+- Add Chat and Images using the existing DouStack website API implementation.
+- Add a limited coding mode for machines without the official Codex app.
+- Build project selection, streaming, approvals, command output, and file diffs
+  on the tested Codex app-server contract where appropriate.
+
+## Milestone 5: distribution and migration
 
 - Package signed macOS builds, then add Windows and Linux builds.
 - Add update channels, release checksums, and rollback support.
-- Import official Codex conversations through an explicit read-only workflow.
-- Back up imported data and never import official account configuration.
+- Add managed official Codex installation/download guidance.
+- Preserve official conversations in place; add imports only for explicitly
+  selected external DS Code data and never import account configuration.
