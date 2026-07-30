@@ -1,0 +1,12 @@
+[package]
+name = "dscode-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+semver = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints]
+workspace = true

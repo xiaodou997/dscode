@@ -21,6 +21,7 @@ desktop application's packaged resources.
 
 - `crates/dscode-core` owns Codex provider configuration and launch planning.
 - `crates/dscode-credentials` owns operating-system credential integration.
+- `crates/dscode-runtime` owns Codex version policy and app-server probing.
 - `apps/dscode-cli` owns terminal input/output and process lifecycle.
 - Keep the core interface small and test behavior through that interface.
 - Treat Codex as a versioned external runtime. Avoid source forks unless a

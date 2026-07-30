@@ -8,6 +8,7 @@ use dscode_core::{
     CodexRuntime, DEFAULT_API_KEY_ENV, DEFAULT_CODEX_BINARY, LaunchRequest, ProviderSettings,
 };
 use dscode_credentials::{CredentialStore, SystemCredentialStore};
+use dscode_runtime::{TESTED_CODEX_VERSION, inspect_runtime, probe_app_server};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -19,6 +20,7 @@ enum Action {
     Init,
     Login,
     Logout,
+    Runtime,
     Help,
     Version,
 }
@@ -65,6 +67,7 @@ fn run() -> Result<u8, String> {
         Action::Init => initialize(&data_layout(&cli)?),
         Action::Login => login(&data_layout(&cli)?, &SystemCredentialStore),
         Action::Logout => logout(&SystemCredentialStore),
+        Action::Runtime => runtime_command(&codex_binary, &data_layout(&cli)?, &cli.forwarded_args),
         Action::Help => {
             print_help();
             Ok(0)
@@ -191,18 +194,35 @@ fn doctor(
     }
 
     let mut healthy = true;
-    match Command::new(codex_binary).arg("--version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout);
-            println!("[ok] codex: {}", version.trim());
-        }
-        Ok(output) => {
-            healthy = false;
-            println!("[error] codex exited with {}", output.status);
+    match inspect_runtime(codex_binary) {
+        Ok(inspection) => {
+            if inspection.compatibility.is_tested() {
+                println!("[ok] codex: {} (tested)", inspection.version);
+            } else {
+                println!(
+                    "[warn] codex: {} ({}, tested: {TESTED_CODEX_VERSION})",
+                    inspection.version,
+                    inspection.compatibility.description()
+                );
+            }
+            if layout.codex_home().is_dir() {
+                match probe_app_server(codex_binary, &layout.codex_home(), VERSION) {
+                    Ok(info) => println!(
+                        "[ok] app-server: initialized on {} ({})",
+                        info.platform_os, info.platform_family
+                    ),
+                    Err(error) => {
+                        healthy = false;
+                        println!("[error] app-server: {error}");
+                    }
+                }
+            } else {
+                println!("[info] app-server: probe skipped until `dscode init`");
+            }
         }
         Err(error) => {
             healthy = false;
-            println!("[error] codex binary `{codex_binary}` is unavailable: {error}");
+            println!("[error] codex: {error}");
         }
     }
 
@@ -266,6 +286,52 @@ fn logout(credential_store: &dyn CredentialStore) -> Result<u8, String> {
         println!("Note: {DEFAULT_API_KEY_ENV} is still set in this environment.");
     }
     Ok(0)
+}
+
+fn runtime_command(
+    codex_binary: &str,
+    layout: &DataLayout,
+    arguments: &[String],
+) -> Result<u8, String> {
+    let probe = match arguments {
+        [] => false,
+        [command] if command == "status" => false,
+        [command] if command == "probe" => true,
+        _ => return Err("usage: dscode runtime [status|probe]".to_string()),
+    };
+    let inspection = inspect_runtime(codex_binary).map_err(|error| error.to_string())?;
+
+    println!("DS Code runtime");
+    println!("[ok] binary: {codex_binary}");
+    println!("[ok] version: {}", inspection.version);
+    if inspection.compatibility.is_tested() {
+        println!("[ok] compatibility: tested");
+    } else {
+        println!(
+            "[warn] compatibility: {} (tested: {TESTED_CODEX_VERSION})",
+            inspection.compatibility.description()
+        );
+    }
+
+    if probe {
+        layout.ensure().map_err(|error| {
+            format!("failed to initialize {}: {error}", layout.root().display())
+        })?;
+        let info = probe_app_server(codex_binary, &layout.codex_home(), VERSION)
+            .map_err(|error| error.to_string())?;
+        println!("[ok] app-server: initialize handshake completed");
+        println!(
+            "[ok] platform: {} ({})",
+            info.platform_os, info.platform_family
+        );
+        println!("[ok] Codex home: {}", info.codex_home.display());
+    }
+
+    Ok(if probe && !inspection.compatibility.is_tested() {
+        1
+    } else {
+        0
+    })
 }
 
 fn configure(cli: &Cli, layout: &DataLayout) -> Result<u8, String> {
@@ -401,6 +467,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
             "init" if command_position => cli.action = Action::Init,
             "login" if command_position => cli.action = Action::Login,
             "logout" if command_position => cli.action = Action::Logout,
+            "runtime" if command_position => cli.action = Action::Runtime,
             "help" if command_position => cli.action = Action::Help,
             other => {
                 cli.forwarded_args.push(other.to_string());
@@ -412,7 +479,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
         }
     }
 
-    if !matches!(cli.action, Action::Launch | Action::Config) && !cli.forwarded_args.is_empty() {
+    if !matches!(
+        cli.action,
+        Action::Launch | Action::Config | Action::Runtime
+    ) && !cli.forwarded_args.is_empty()
+    {
         return Err("this DS Code command does not accept Codex arguments".to_string());
     }
     Ok(cli)
@@ -475,6 +546,7 @@ fn print_help() {
            dscode init [OPTIONS]\n\
            dscode login [OPTIONS]\n\
            dscode logout [OPTIONS]\n\
+           dscode runtime [status|probe] [OPTIONS]\n\
          \n\
          Options:\n\
            --base-url URL   DouStack Responses API root\n\
@@ -577,6 +649,21 @@ mod tests {
             cli.forwarded_args,
             strings(&["set", "model", "gpt-example"])
         );
+    }
+
+    #[test]
+    fn runtime_accepts_probe_argument() {
+        let cli = parse_args(strings(&[
+            "runtime",
+            "probe",
+            "--home",
+            "/tmp/dscode-runtime",
+        ]))
+        .expect("valid runtime command");
+
+        assert_eq!(cli.action, Action::Runtime);
+        assert_eq!(cli.forwarded_args, strings(&["probe"]));
+        assert_eq!(cli.data_home.as_deref(), Some("/tmp/dscode-runtime"));
     }
 
     #[test]

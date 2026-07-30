@@ -29,6 +29,8 @@ cargo run -p dscode-cli -- config
 cargo run -p dscode-cli -- doctor
 cargo run -p dscode-cli -- init
 cargo run -p dscode-cli -- login
+cargo run -p dscode-cli -- runtime status
+cargo run -p dscode-cli -- runtime probe
 ```
 
 For development, an environment credential can launch Codex directly:
@@ -61,6 +63,18 @@ Forward normal Codex commands and flags after DS Code options:
 cargo run -p dscode-cli -- --model MODEL exec "explain this repository"
 ```
 
+Inspect the installed Codex runtime without making a model request:
+
+```bash
+cargo run -p dscode-cli -- runtime status
+cargo run -p dscode-cli -- runtime probe
+```
+
+`runtime probe` performs the production stdio `app-server` initialization
+handshake and verifies that the server uses DS Code's isolated `CODEX_HOME`.
+The currently tested Codex version is `0.146.0`; other versions are reported as
+untested until their protocol schema and behavior pass the compatibility suite.
+
 ## Data directory
 
 `dscode init` creates this isolated layout:
@@ -85,6 +99,7 @@ operation.
 3. Add managed Codex installation and compatibility tests.
 4. Build the DS Code desktop client on Codex app-server.
 
-See [ADR 0001](docs/adr/0001-stock-codex-runtime.md) for the runtime architecture
-and [ADR 0002](docs/adr/0002-system-credential-store.md) for credential handling.
+See [ADR 0001](docs/adr/0001-stock-codex-runtime.md) for the runtime architecture,
+[ADR 0002](docs/adr/0002-system-credential-store.md) for credential handling,
+and [ADR 0003](docs/adr/0003-runtime-compatibility.md) for app-server compatibility.
 The staged delivery plan is tracked in [the roadmap](docs/roadmap.md).

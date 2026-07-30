@@ -4,6 +4,7 @@ members = [
   "apps/dscode-cli",
   "crates/dscode-core",
   "crates/dscode-credentials",
+  "crates/dscode-runtime",
 ]
 
 [workspace.package]

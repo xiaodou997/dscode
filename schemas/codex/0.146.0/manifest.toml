@@ -1,0 +1,5 @@
+codex_version = "0.146.0"
+surface = "stable"
+generator = "codex app-server generate-json-schema --out DIR"
+schema = "codex_app_server_protocol.schemas.json"
+sha256 = "1a9a00c1ee35d44c8e04e92b394263544f90acaa7afe3c7023b08d9f0eb0d161"

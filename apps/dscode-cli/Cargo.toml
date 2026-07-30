@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 dscode-core = { path = "../../crates/dscode-core" }
 dscode-credentials = { path = "../../crates/dscode-credentials" }
+dscode-runtime = { path = "../../crates/dscode-runtime" }
 rpassword = "7.5"
 
 [lints]
