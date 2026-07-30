@@ -11,7 +11,8 @@ the command is `dscode`.
 
 - Use the installed stock `codex` binary as the agent runtime.
 - Inject the DouStack provider through Codex command-line configuration.
-- Read the API key from `DOUSTACK_API_KEY`; never place it in arguments or TOML.
+- Store the API key in the operating system credential manager, with
+  `DOUSTACK_API_KEY` as an explicit development override.
 - Provide configuration preview and local diagnostics.
 - Leave the user's existing `~/.codex` configuration unchanged.
 - Store DS Code runtime data under `~/.dscode/` and set the child Codex
@@ -27,13 +28,31 @@ cargo test --workspace
 cargo run -p dscode-cli -- config
 cargo run -p dscode-cli -- doctor
 cargo run -p dscode-cli -- init
+cargo run -p dscode-cli -- login
 ```
 
-To launch Codex after supplying a DouStack key:
+For development, an environment credential can launch Codex directly:
 
 ```bash
 export DOUSTACK_API_KEY="..."
 cargo run -p dscode-cli
+```
+
+For normal use, store the credential in macOS Keychain, Windows Credential
+Manager, or the Linux Secret Service:
+
+```bash
+cargo run -p dscode-cli -- login
+cargo run -p dscode-cli
+cargo run -p dscode-cli -- logout
+```
+
+Persist non-sensitive settings in `~/.dscode/config.toml`:
+
+```bash
+cargo run -p dscode-cli -- config set model MODEL
+cargo run -p dscode-cli -- config set base-url https://miao.313619.xyz
+cargo run -p dscode-cli -- config show
 ```
 
 Forward normal Codex commands and flags after DS Code options:
@@ -55,8 +74,9 @@ cargo run -p dscode-cli -- --model MODEL exec "explain this repository"
 └── cache/       Download and compatibility caches
 ```
 
-Override the location with `DSCODE_HOME` or `--home`. DS Code does not read or
-write `~/.codex` during normal operation.
+Override the location with `DSCODE_HOME` or `--home`. The API key is not stored
+in this directory. DS Code does not read or write `~/.codex` during normal
+operation.
 
 ## Roadmap
 
@@ -65,4 +85,6 @@ write `~/.codex` during normal operation.
 3. Add managed Codex installation and compatibility tests.
 4. Build the DS Code desktop client on Codex app-server.
 
-See [ADR 0001](docs/adr/0001-stock-codex-runtime.md) for the initial architecture.
+See [ADR 0001](docs/adr/0001-stock-codex-runtime.md) for the runtime architecture
+and [ADR 0002](docs/adr/0002-system-credential-store.md) for credential handling.
+The staged delivery plan is tracked in [the roadmap](docs/roadmap.md).

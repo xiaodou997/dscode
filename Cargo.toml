@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "apps/dscode-cli",
   "crates/dscode-core",
+  "crates/dscode-credentials",
 ]
 
 [workspace.package]

@@ -62,6 +62,10 @@ impl DataLayout {
         self.root.join("cache")
     }
 
+    pub fn config_file(&self) -> PathBuf {
+        self.root.join("config.toml")
+    }
+
     pub fn ensure(&self) -> io::Result<()> {
         for directory in self.required_directories() {
             fs::create_dir_all(directory)?;

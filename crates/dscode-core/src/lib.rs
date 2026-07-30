@@ -1,3 +1,4 @@
+pub mod config;
 pub mod data_layout;
 
 use std::ffi::OsString;
