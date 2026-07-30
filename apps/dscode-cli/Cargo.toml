@@ -1,0 +1,14 @@
+[package]
+name = "dscode-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "dscode"
+path = "src/main.rs"
+
+[dependencies]
+dscode-core = { path = "../../crates/dscode-core" }
+
+[lints]
+workspace = true

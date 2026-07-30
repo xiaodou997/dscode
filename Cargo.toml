@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/dscode-cli",
+  "crates/dscode-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
